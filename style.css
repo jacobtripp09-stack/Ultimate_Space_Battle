@@ -1,0 +1,74 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+    font-family: 'Arial', sans-serif;
+    color: #fff;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+canvas {
+    border: 3px solid #00ff41;
+    background: #000;
+    box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+    cursor: none;
+}
+
+.ui {
+    width: 800px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.score-board {
+    display: flex;
+    gap: 40px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #00ff41;
+    text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+}
+
+#score,
+#lives {
+    color: #ffff00;
+    margin-left: 10px;
+}
+
+.game-info {
+    flex: 1;
+    text-align: right;
+    font-size: 16px;
+    color: #00ff41;
+    min-height: 20px;
+}
+
+/* Retro glow effect */
+@keyframes glow {
+    0%, 100% {
+        text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+    }
+    50% {
+        text-shadow: 0 0 15px rgba(0, 255, 65, 0.8);
+    }
+}
+
+.score-board {
+    animation: glow 2s ease-in-out infinite;
+}
