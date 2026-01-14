@@ -1,0 +1,105 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100svh;
+    background: linear-gradient(135deg, #1e1e2e 0%, #2a2a3e 100%);
+    font-family: 'Arial', sans-serif;
+    color: #fff;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    width: 100vw;
+    max-width: 1200px;
+}
+
+canvas {
+    touch-action: none; /* allow pointer/touch control without page scrolling */
+    border: 3px solid #00ff41;
+    background: #000;
+    box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+    cursor: none;
+}
+
+.ui {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.score-board {
+    display: flex;
+    gap: 40px;
+    font-size: 18px;
+    font-weight: bold;
+    color: #00ff41;
+    text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+}
+
+#score,
+#lives {
+    color: #ffff00;
+    margin-left: 10px;
+}
+
+.game-info {
+    flex: 1;
+    text-align: right;
+    font-size: 16px;
+    color: #00ff41;
+    min-height: 20px;
+}
+
+/* Retro glow effect */
+@keyframes glow {
+    0%, 100% {
+        text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+    }
+    50% {
+        text-shadow: 0 0 15px rgba(0, 255, 65, 0.8);
+    }
+}
+
+.score-board {
+    animation: glow 2s ease-in-out infinite;
+}
+
+
+/* Mobile tweaks */
+@media (max-width: 520px) {
+    .container { padding: 10px; }
+
+    .ui {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+    .score-board {
+        gap: 18px;
+        font-size: 16px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+    .game-info {
+        text-align: center;
+        width: 100%;
+    }
+    canvas {
+        cursor: default;
+    }
+}
