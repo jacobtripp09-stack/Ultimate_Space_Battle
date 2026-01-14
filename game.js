@@ -133,8 +133,8 @@ function resizeCanvas() {
     viewCssW = cssW;
     viewCssH = cssH;
 
-    // Uniform "cover" scale (fills screen, may crop)
-    viewScale = Math.max(cssW / CANVAS_WIDTH, cssH / CANVAS_HEIGHT);
+    // Uniform "contain" scale (fits entire game world on screen)
+    viewScale = Math.min(cssW / CANVAS_WIDTH, cssH / CANVAS_HEIGHT);
 
     // Center the world within the screen (offsets are in CSS pixels)
     viewOffsetX = (cssW - CANVAS_WIDTH * viewScale) / 2;
