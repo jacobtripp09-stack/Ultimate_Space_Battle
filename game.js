@@ -112,8 +112,8 @@ function resizeCanvas() {
     // Leave a little padding so nothing touches the edges
     const pad = 16;
     const maxW = 1200; // allow larger than 800 on big screens (scaled up)
-    const availW = Math.max(280, Math.min(window.innerWidth - pad * 2, maxW));
-    const availH = Math.max(240, window.innerHeight - uiH - pad * 3);
+    const availW = Math.max(280, Math.min((window.visualViewport ? window.visualViewport.width : window.innerWidth) - pad * 2, maxW));
+    const availH = Math.max(240, (window.visualViewport ? window.visualViewport.height : window.innerHeight) - uiH - pad * 3);
 
     // Maintain the game's aspect ratio (800x600 = 4:3)
     let displayW = availW;
@@ -140,6 +140,12 @@ function resizeCanvas() {
 
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', resizeCanvas);
+// Better mobile sizing when the browser UI (address bar) changes
+if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resizeCanvas);
+    window.visualViewport.addEventListener('scroll', resizeCanvas);
+}
+
 resizeCanvas();
 
 function clientToGameCoords(clientX, clientY) {
