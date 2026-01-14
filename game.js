@@ -94,46 +94,51 @@ const BULLET_LIFE_MAX_FRAMES = 600;
 // Responsive canvas scaling (keep game logic in 800x600, scale visually to fit screen)
 let renderScale = 1;
 let deviceScale = 1;
+let viewScale = 1;
+let viewOffsetX = 0;
+let viewOffsetY = 0;
+let viewCssW = CANVAS_WIDTH;
+let viewCssH = CANVAS_HEIGHT;
 
 // Keep drawing coordinates in the original 800x600 "game space" even when the canvas
 // backing store is resized for different screens / pixel ratios.
 function applyCanvasTransform() {
-    const sx = canvas.width / CANVAS_WIDTH;
-    const sy = canvas.height / CANVAS_HEIGHT;
-    ctx.setTransform(sx, 0, 0, sy, 0, 0);
+    // Scale the 800x600 game world to COVER the screen (true fullscreen)
+    // with a uniform scale (no stretching). This may crop the edges.
+    const s = viewScale * deviceScale;
+    ctx.setTransform(s, 0, 0, s, viewOffsetX * deviceScale, viewOffsetY * deviceScale);
+
     // Retro look: avoid blurring when scaled
     ctx.imageSmoothingEnabled = false;
 }
 
 function resizeCanvas() {
-    const ui = document.querySelector('.ui');
-    const uiH = ui ? ui.getBoundingClientRect().height : 0;
+    // True fullscreen: canvas always matches the usable viewport
+    const vv = window.visualViewport;
+    const cssW = Math.floor(vv ? vv.width : window.innerWidth);
+    const cssH = Math.floor(vv ? vv.height : window.innerHeight);
 
-    // Leave a little padding so nothing touches the edges
-    const pad = 16;
-    const maxW = 1200; // allow larger than 800 on big screens (scaled up)
-    const availW = Math.max(280, Math.min((window.visualViewport ? window.visualViewport.width : window.innerWidth) - pad * 2, maxW));
-    const availH = Math.max(240, (window.visualViewport ? window.visualViewport.height : window.innerHeight) - uiH - pad * 3);
-
-    // Maintain the game's aspect ratio (800x600 = 4:3)
-    let displayW = availW;
-    let displayH = displayW * (CANVAS_HEIGHT / CANVAS_WIDTH);
-
-    if (displayH > availH) {
-        displayH = availH;
-        displayW = displayH * (CANVAS_WIDTH / CANVAS_HEIGHT);
-    }
+    // Cap DPR a bit for performance on mobile
+    deviceScale = Math.min(window.devicePixelRatio || 1, 2);
 
     // CSS size (layout size)
-    canvas.style.width = `${displayW}px`;
-    canvas.style.height = `${displayH}px`;
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
 
     // Backing store size (pixel size) for crisp rendering
-    deviceScale = window.devicePixelRatio || 1;
-    canvas.width = Math.round(displayW * deviceScale);
-    canvas.height = Math.round(displayH * deviceScale);
+    canvas.width = Math.max(1, Math.round(cssW * deviceScale));
+    canvas.height = Math.max(1, Math.round(cssH * deviceScale));
 
-    renderScale = displayW / CANVAS_WIDTH;
+    // Store CSS viewport size for input mapping
+    viewCssW = cssW;
+    viewCssH = cssH;
+
+    // Uniform "cover" scale (fills screen, may crop)
+    viewScale = Math.max(cssW / CANVAS_WIDTH, cssH / CANVAS_HEIGHT);
+
+    // Center the world within the screen (offsets are in CSS pixels)
+    viewOffsetX = (cssW - CANVAS_WIDTH * viewScale) / 2;
+    viewOffsetY = (cssH - CANVAS_HEIGHT * viewScale) / 2;
 
     applyCanvasTransform();
 }
@@ -150,9 +155,18 @@ resizeCanvas();
 
 function clientToGameCoords(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
-    const x = (clientX - rect.left) / rect.width * CANVAS_WIDTH;
-    const y = (clientY - rect.top) / rect.height * CANVAS_HEIGHT;
-    return { x, y };
+    const cssX = (clientX - rect.left);
+    const cssY = (clientY - rect.top);
+
+    // Convert from screen (CSS pixels) to game coordinates, accounting for cover-scale & cropping
+    const x = (cssX - viewOffsetX) / viewScale;
+    const y = (cssY - viewOffsetY) / viewScale;
+
+    // Clamp so taps in cropped regions don't produce wild values
+    return {
+        x: Math.max(0, Math.min(CANVAS_WIDTH, x)),
+        y: Math.max(0, Math.min(CANVAS_HEIGHT, y)),
+    };
 }
 
 let pointerDown = false;
