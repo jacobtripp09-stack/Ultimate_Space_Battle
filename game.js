@@ -67,7 +67,9 @@ const player = {
     maxHitTime: 30,
     // Collision impulse (enemy-like bounce). Added on top of pointer movement.
     bumpVX: 0,
-    bumpVY: 0
+    bumpVY: 0,
+    vx: 0,
+    vy: 0
 };
 
 // Arrays for game objects
@@ -86,6 +88,16 @@ player.shotLevel = 1; // number of bullets per shot
 // Touch / Pointer input + responsive scaling
 let touchX = CANVAS_WIDTH / 2;
 let touchY = CANVAS_HEIGHT - 70;
+
+// Virtual joystick (touch) control
+let joystickActive = false;
+let joystickStartX = 0;
+let joystickStartY = 0;
+let joystickDX = 0;
+let joystickDY = 0;
+let joystickTouchId = null;
+const JOYSTICK_RADIUS = 45; // pixels in game coords
+
 let lastShootTime = 0;
 const SHOOT_INTERVAL = 400; // 0.4 seconds in milliseconds
 
@@ -175,33 +187,58 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', (e) => {
     pointerDown = false;
+    if (joystickActive && e.pointerType === 'touch' && (joystickTouchId === null || joystickTouchId === e.pointerId)) {
+        joystickActive = false;
+        joystickTouchId = null;
+        joystickDX = 0;
+        joystickDY = 0;
+    }
     e.preventDefault();
 });
 
 canvas.addEventListener('pointercancel', (e) => {
     pointerDown = false;
+    joystickActive = false;
+    joystickTouchId = null;
+    joystickDX = 0;
+    joystickDY = 0;
     e.preventDefault();
 });
 
 // Fallback touch events (older iOS)
 canvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    if (e.touches && e.touches.length > 0) {
-        const t = e.touches[0];
+    pointerDown = true;
+    const t = e.changedTouches[0];
+    if (t) {
         const p = clientToGameCoords(t.clientX, t.clientY);
-        touchX = p.x;
-        touchY = p.y;
+        joystickActive = true;
+        joystickStartX = p.x;
+        joystickStartY = p.y;
+        joystickDX = 0;
+        joystickDY = 0;
+        joystickTouchId = t.identifier;
     }
+    e.preventDefault();
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (e.touches && e.touches.length > 0) {
-        const t = e.touches[0];
-        const p = clientToGameCoords(t.clientX, t.clientY);
-        touchX = p.x;
-        touchY = p.y;
+    if (!pointerDown || !joystickActive) return;
+    // Track the same finger that started the joystick
+    let t = null;
+    for (const tt of e.touches) {
+        if (joystickTouchId === null || tt.identifier === joystickTouchId) { t = tt; break; }
     }
+    if (t) {
+        const p = clientToGameCoords(t.clientX, t.clientY);
+        joystickDX = p.x - joystickStartX;
+        joystickDY = p.y - joystickStartY;
+        const len = Math.hypot(joystickDX, joystickDY);
+        if (len > JOYSTICK_RADIUS) {
+            joystickDX = (joystickDX / len) * JOYSTICK_RADIUS;
+            joystickDY = (joystickDY / len) * JOYSTICK_RADIUS;
+        }
+    }
+    e.preventDefault();
 }, { passive: false });
 
 // Prevent page scrolling while interacting with the game
@@ -314,27 +351,38 @@ function updatePlayer() {
         player.hitTimer--;
     }
 
-    // Apply collision impulse (enemy-like bounce). This decays over time.
-    player.x = (touchX - player.width / 2) + (player.bumpVX || 0);
-    player.y = (touchY - player.height / 2) + (player.bumpVY || 0);
+    // Determine intended movement:
+    // - Touch uses a virtual joystick (no teleport)
+    // - Mouse/pen keeps legacy "follow pointer" style for desktop
+    if (joystickActive) {
+        const len = Math.max(1, Math.hypot(joystickDX, joystickDY));
+        const nx = joystickDX / len;
+        const ny = joystickDY / len;
+        const mag = Math.min(JOYSTICK_RADIUS, len) / JOYSTICK_RADIUS; // 0..1
+        player.vx = nx * player.speed * mag;
+        player.vy = ny * player.speed * mag;
+    } else {
+        // Desktop pointer follow (still smooth because we move toward touchX/Y)
+        const targetX = touchX - player.width / 2;
+        const targetY = touchY - player.height / 2;
+        const dx = targetX - player.x;
+        const dy = targetY - player.y;
+        player.vx = dx * 0.25;
+        player.vy = dy * 0.25;
+    }
 
-    // Decay the impulse so it feels floaty but settles.
+    // Apply movement + collision impulse (enemy-like bounce). Impulse decays over time.
+    player.x += (player.vx || 0) + (player.bumpVX || 0);
+    player.y += (player.vy || 0) + (player.bumpVY || 0);
+
     player.bumpVX = (player.bumpVX || 0) * 0.88;
     player.bumpVY = (player.bumpVY || 0) * 0.88;
 
-    // Keep player in bounds
+    // Keep player in bounds (walls do NOT cause damage)
     if (player.x < 0) player.x = 0;
     if (player.x + player.width > CANVAS_WIDTH) player.x = CANVAS_WIDTH - player.width;
     if (player.y < 0) player.y = 0;
     if (player.y + player.height > CANVAS_HEIGHT) player.y = CANVAS_HEIGHT - player.height;
-
-    // Bounce the impulse off walls (no damage from walls)
-    if (player.x <= 0 || player.x + player.width >= CANVAS_WIDTH) {
-        player.bumpVX = -(player.bumpVX || 0) * 0.7;
-    }
-    if (player.y <= 0 || player.y + player.height >= CANVAS_HEIGHT) {
-        player.bumpVY = -(player.bumpVY || 0) * 0.7;
-    }
 }
 
 // Shoot bullet (stackable shot level)
