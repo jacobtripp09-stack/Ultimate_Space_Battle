@@ -96,7 +96,9 @@ let joystickStartY = 0;
 let joystickDX = 0;
 let joystickDY = 0;
 let joystickTouchId = null;
-const JOYSTICK_RADIUS = 45; // pixels in game coords
+const JOYSTICK_RADIUS = 55; // pixels in game coords (bigger = less twitchy)
+const JOYSTICK_DEADZONE = 12; // pixels (ignore tiny movements)
+const JOYSTICK_SENSITIVITY = 0.65; // 0..1 (lower = slower)
 
 let lastShootTime = 0;
 const SHOOT_INTERVAL = 400; // 0.4 seconds in milliseconds
@@ -222,7 +224,7 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
-    if (!pointerDown || !joystickActive) return;
+    if (!pointerDown || !joystickActive) return; // joystick only; do not warp to finger position
     // Track the same finger that started the joystick
     let t = null;
     for (const tt of e.touches) {
@@ -339,7 +341,7 @@ function drawPlayer() {
         
         // Draw outline
         ctx.strokeStyle = displayColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.stroke();
     }
 }
@@ -355,12 +357,24 @@ function updatePlayer() {
     // - Touch uses a virtual joystick (no teleport)
     // - Mouse/pen keeps legacy "follow pointer" style for desktop
     if (joystickActive) {
-        const len = Math.max(1, Math.hypot(joystickDX, joystickDY));
-        const nx = joystickDX / len;
-        const ny = joystickDY / len;
-        const mag = Math.min(JOYSTICK_RADIUS, len) / JOYSTICK_RADIUS; // 0..1
-        player.vx = nx * player.speed * mag;
-        player.vy = ny * player.speed * mag;
+        const rawLen = Math.hypot(joystickDX, joystickDY);
+        // Deadzone so tiny finger jitter doesn't move the ship
+        const len = Math.max(0, rawLen - JOYSTICK_DEADZONE);
+
+        if (len <= 0.0001) {
+            player.vx = 0;
+            player.vy = 0;
+        } else {
+            const nx = joystickDX / rawLen;
+            const ny = joystickDY / rawLen;
+
+            // Non-linear curve for smoother low-speed control
+            const clamped = Math.min(JOYSTICK_RADIUS, len) / JOYSTICK_RADIUS; // 0..1
+            const mag = Math.pow(clamped, 1.35) * JOYSTICK_SENSITIVITY;
+
+            player.vx = nx * player.speed * mag;
+            player.vy = ny * player.speed * mag;
+        }
     } else {
         // Desktop pointer follow (still smooth because we move toward touchX/Y)
         const targetX = touchX - player.width / 2;
@@ -589,7 +603,7 @@ function drawEnemies() {
             
             // Draw outline
             ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             ctx.strokeRect(enemy.x, enemy.y, enemy.width, enemy.height);
         }
 
@@ -1062,7 +1076,7 @@ function drawEnemyBullets() {
 
             // Subtle outline so it stays visible on bright backgrounds
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.stroke();
@@ -1442,7 +1456,7 @@ function drawBoss() {
         ctx.fillStyle = '#990099';
         ctx.fillRect(b.x, b.y, b.width, b.height);
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.strokeRect(b.x, b.y, b.width, b.height);
 
         // Health bar above boss
@@ -1559,7 +1573,7 @@ function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius, fillStyle, stro
     ctx.fill();
     if (strokeStyle) {
         ctx.strokeStyle = strokeStyle;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.stroke();
     }
 }  
