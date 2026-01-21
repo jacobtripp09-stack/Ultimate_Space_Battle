@@ -104,7 +104,7 @@ let joystickDY = 0;
 let joystickTouchId = null;
 const JOYSTICK_RADIUS = 55; // pixels in game coords (bigger = less twitchy)
 const JOYSTICK_DEADZONE = 12; // pixels (ignore tiny movements)
-const JOYSTICK_SENSITIVITY = 0.55; // 0..1 (lower = slower)
+const JOYSTICK_SENSITIVITY = 0.9; // 0..1 (higher = faster)
 
 // UI joystick (DOM) state
 let uiJoyActive = false;
@@ -455,7 +455,7 @@ function updatePlayer() {
             const ny = uiJoyDY / rawLen;
             const radius = (joystickBaseEl ? (joystickBaseEl.clientWidth / 2 - 10) : JOYSTICK_RADIUS);
             const clamped = Math.min(radius, len) / radius;
-            const mag = Math.pow(clamped, 1.45) * JOYSTICK_SENSITIVITY;
+            const mag = Math.pow(clamped, 1.2) * JOYSTICK_SENSITIVITY;
             player.vx = nx * player.speed * mag;
             player.vy = ny * player.speed * mag;
         }
