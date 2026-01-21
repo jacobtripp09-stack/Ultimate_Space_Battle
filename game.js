@@ -1,8 +1,8 @@
 // Game Constants
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
-const PLAYER_WIDTH = 50;
-const PLAYER_HEIGHT = 50;
+const PLAYER_WIDTH = 60;
+const PLAYER_HEIGHT = 85;
 const PLAYER_SPEED = 8;
 const BULLET_SPEED = 7;
 const ENEMY_WIDTH = 40;
@@ -262,15 +262,11 @@ document.addEventListener('keydown', (e) => {
 
 // Load images (will use when PNGs are added)
 function loadImages() {
-    // Player image - Galaga ship
-    player.image = new Image();
-    player.image.src = 'https://www.pngkey.com/png/detail/273-2735899_galaga-ship-png-galaga-spaceship-png.png';
-    player.image.onerror = () => {
-        console.log('Player image not found, using fallback shape');
-        player.image = null;
-    };
-    
+    // Player image - using custom vector jet ship (no sprite)
+    player.image = null;
+
     // Enemy image
+
     enemyImage = new Image();
     enemyImage.src = 'assets/enemy.png';
     enemyImage.onerror = () => {
@@ -287,27 +283,117 @@ function drawPlayer() {
         // Blink between red and original color
         displayColor = Math.floor(player.hitTimer / 5) % 2 === 0 ? '#ff0000' : player.color;
     }
-    
-    if (player.image && player.image.complete) {
-        ctx.drawImage(player.image, player.x, player.y, player.width, player.height);
-    } else {
-        // Fallback: draw as triangle
-        ctx.fillStyle = displayColor;
-        ctx.beginPath();
-        ctx.moveTo(player.x + player.width / 2, player.y);
-        ctx.lineTo(player.x + player.width, player.y + player.height);
-        ctx.lineTo(player.x, player.y + player.height);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Draw outline
-        ctx.strokeStyle = displayColor;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-    }
+
+    // Jet-style ship (vector). This replaces the old triangle + wing approach.
+    // All dimensions are proportional so it scales with PLAYER_WIDTH/HEIGHT.
+    const x = player.x;
+    const y = player.y;
+    const w = player.width;
+    const h = player.height;
+
+    // Key points
+    const noseX = x + w * 0.5;
+    const noseY = y;
+    const bodyBottomY = y + h;
+    const bodyTopY = y + h * 0.15;
+
+    // Body width at different heights
+    const bodyNarrow = w * 0.18;
+    const bodyMid = w * 0.28;
+    const bodyWide = w * 0.36;
+
+    // Wing geometry (swept back)
+    const wingY = y + h * 0.55;
+    const wingSpan = w * 0.85;          // slightly less long
+    const wingBack = h * 0.16;          // slightly less swept
+    const wingThickness = h * 0.18;     // MUCH thicker wings
+
+    // Tail fins
+    const tailY = y + h * 0.80;
+    const tailSpan = w * 0.35;
+    const tailH = h * 0.18;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+
+    // --- Wings (draw first, behind body) ---
+    ctx.fillStyle = displayColor;
+    ctx.globalAlpha = 0.95;
+
+    // Left wing (polygon)
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.40, wingY);                              // inner front
+    ctx.lineTo(x + w * 0.40, wingY + wingThickness);              // inner bottom
+    ctx.lineTo(x + w * 0.40 - wingSpan, wingY + wingBack + wingThickness); // far back bottom
+    ctx.lineTo(x + w * 0.40 - wingSpan * 0.92, wingY + wingBack);         // far back top
+    ctx.closePath();
+    ctx.fill();
+
+    // Right wing (polygon)
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.60, wingY);                              // inner front
+    ctx.lineTo(x + w * 0.60, wingY + wingThickness);              // inner bottom
+    ctx.lineTo(x + w * 0.60 + wingSpan, wingY + wingBack + wingThickness); // far back bottom
+    ctx.lineTo(x + w * 0.60 + wingSpan * 0.92, wingY + wingBack);         // far back top
+    ctx.closePath();
+    ctx.fill();
+
+    // --- Tail wings (small stabilizers) ---
+    ctx.globalAlpha = 0.90;
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.50 - tailSpan, tailY);
+    ctx.lineTo(x + w * 0.50, tailY + tailH);
+    ctx.lineTo(x + w * 0.50 + tailSpan, tailY);
+    ctx.lineTo(x + w * 0.50, tailY + tailH * 0.45);
+    ctx.closePath();
+    ctx.fill();
+
+    // --- Body (fuselage) ---
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    // Nose
+    ctx.moveTo(noseX, noseY);
+    // Left side down
+    ctx.lineTo(x + w * 0.50 - bodyNarrow, bodyTopY);
+    ctx.lineTo(x + w * 0.50 - bodyMid, y + h * 0.45);
+    ctx.lineTo(x + w * 0.50 - bodyWide, y + h * 0.78);
+    ctx.lineTo(x + w * 0.50 - bodyMid, bodyBottomY);
+    // Right side up
+    ctx.lineTo(x + w * 0.50 + bodyMid, bodyBottomY);
+    ctx.lineTo(x + w * 0.50 + bodyWide, y + h * 0.78);
+    ctx.lineTo(x + w * 0.50 + bodyMid, y + h * 0.45);
+    ctx.lineTo(x + w * 0.50 + bodyNarrow, bodyTopY);
+    ctx.closePath();
+    ctx.fillStyle = displayColor;
+    ctx.fill();
+
+    // --- Canopy (cockpit) ---
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(noseX, y + h * 0.18);
+    ctx.lineTo(x + w * 0.50 - w * 0.12, y + h * 0.35);
+    ctx.lineTo(x + w * 0.50, y + h * 0.45);
+    ctx.lineTo(x + w * 0.50 + w * 0.12, y + h * 0.35);
+    ctx.closePath();
+    ctx.fill();
+
+    // --- Engine glow (small) ---
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = '#ffff00';
+    const glowW = w * 0.18;
+    const glowH = h * 0.10;
+    ctx.fillRect(x + w * 0.50 - glowW / 2, y + h * 0.92, glowW, glowH);
+
+    // --- Outline for readability ---
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = displayColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.restore();
 }
 
-// Update player position to follow touch/mouse exactly
 function updatePlayer() {
     // Decrease hit timer
     if (player.hitTimer > 0) {
