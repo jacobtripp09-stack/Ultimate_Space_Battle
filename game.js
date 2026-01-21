@@ -19,11 +19,6 @@ const ENEMY_POST_SHOT_COOLDOWN_MAX = 120;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Joystick UI (below the canvas)
-const joystickArea = document.getElementById('joystickArea');
-const joystickBaseEl = document.getElementById('joystickBase');
-const joystickKnobEl = document.getElementById('joystickKnob');
-
 // UI elements
 const scoreElement = document.getElementById('score');
 const livesElement = document.getElementById('lives');
@@ -72,9 +67,7 @@ const player = {
     maxHitTime: 30,
     // Collision impulse (enemy-like bounce). Added on top of pointer movement.
     bumpVX: 0,
-    bumpVY: 0,
-    vx: 0,
-    vy: 0
+    bumpVY: 0
 };
 
 // Arrays for game objects
@@ -93,35 +86,6 @@ player.shotLevel = 1; // number of bullets per shot
 // Touch / Pointer input + responsive scaling
 let touchX = CANVAS_WIDTH / 2;
 let touchY = CANVAS_HEIGHT - 70;
-
-// Virtual joystick (touch) control
-// Canvas-based joystick is kept for fallback; primary control is the UI joystick below the game.
-let joystickActive = false;
-let joystickStartX = 0;
-let joystickStartY = 0;
-let joystickDX = 0;
-let joystickDY = 0;
-let joystickTouchId = null;
-const JOYSTICK_RADIUS = 55; // pixels in game coords (bigger = less twitchy)
-const JOYSTICK_DEADZONE = 12; // pixels (ignore tiny movements)
-const JOYSTICK_SENSITIVITY = 0.9; // 0..1 (higher = faster)
-
-// UI joystick (DOM) state
-let uiJoyActive = false;
-let uiJoyStartX = 0;
-let uiJoyStartY = 0;
-let uiJoyDX = 0;
-let uiJoyDY = 0;
-let uiJoyPointerId = null;
-
-function setKnob(dx, dy, radiusPx) {
-    if (!joystickKnobEl) return;
-    const cx = 0.5 * joystickBaseEl.clientWidth;
-    const cy = 0.5 * joystickBaseEl.clientHeight;
-    joystickKnobEl.style.left = (cx + dx) + 'px';
-    joystickKnobEl.style.top  = (cy + dy) + 'px';
-}
-
 let lastShootTime = 0;
 const SHOOT_INTERVAL = 400; // 0.4 seconds in milliseconds
 
@@ -211,125 +175,34 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', (e) => {
     pointerDown = false;
-    if (joystickActive && e.pointerType === 'touch' && (joystickTouchId === null || joystickTouchId === e.pointerId)) {
-        joystickActive = false;
-        joystickTouchId = null;
-        joystickDX = 0;
-        joystickDY = 0;
-    }
     e.preventDefault();
 });
 
 canvas.addEventListener('pointercancel', (e) => {
     pointerDown = false;
-    joystickActive = false;
-    joystickTouchId = null;
-    joystickDX = 0;
-    joystickDY = 0;
     e.preventDefault();
 });
 
 // Fallback touch events (older iOS)
 canvas.addEventListener('touchstart', (e) => {
-    pointerDown = true;
-    const t = e.changedTouches[0];
-    if (t) {
-        const p = clientToGameCoords(t.clientX, t.clientY);
-        joystickActive = true;
-        joystickStartX = p.x;
-        joystickStartY = p.y;
-        joystickDX = 0;
-        joystickDY = 0;
-        joystickTouchId = t.identifier;
-    }
     e.preventDefault();
+    if (e.touches && e.touches.length > 0) {
+        const t = e.touches[0];
+        const p = clientToGameCoords(t.clientX, t.clientY);
+        touchX = p.x;
+        touchY = p.y;
+    }
 }, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
-    if (!pointerDown || !joystickActive) return; // joystick only; do not warp to finger position
-    // Track the same finger that started the joystick
-    let t = null;
-    for (const tt of e.touches) {
-        if (joystickTouchId === null || tt.identifier === joystickTouchId) { t = tt; break; }
-    }
-    if (t) {
-        const p = clientToGameCoords(t.clientX, t.clientY);
-        joystickDX = p.x - joystickStartX;
-        joystickDY = p.y - joystickStartY;
-        const len = Math.hypot(joystickDX, joystickDY);
-        if (len > JOYSTICK_RADIUS) {
-            joystickDX = (joystickDX / len) * JOYSTICK_RADIUS;
-            joystickDY = (joystickDY / len) * JOYSTICK_RADIUS;
-        }
-    }
     e.preventDefault();
+    if (e.touches && e.touches.length > 0) {
+        const t = e.touches[0];
+        const p = clientToGameCoords(t.clientX, t.clientY);
+        touchX = p.x;
+        touchY = p.y;
+    }
 }, { passive: false });
-
-
-// --- UI Joystick controls (below canvas) ---
-if (joystickArea && joystickBaseEl) {
-    const getLocal = (e) => {
-        const r = joystickBaseEl.getBoundingClientRect();
-        const x = e.clientX - (r.left + r.width / 2);
-        const y = e.clientY - (r.top + r.height / 2);
-        return { x, y, radius: Math.max(20, r.width / 2 - 10) };
-    };
-
-    joystickArea.addEventListener('pointerdown', (e) => {
-        // Only use joystick for touch/pointer; do not teleport the ship
-        uiJoyActive = true;
-        uiJoyPointerId = e.pointerId;
-        joystickArea.setPointerCapture?.(e.pointerId);
-
-        const p = getLocal(e);
-        uiJoyStartX = 0;
-        uiJoyStartY = 0;
-        uiJoyDX = p.x;
-        uiJoyDY = p.y;
-
-        // clamp and show knob
-        const len = Math.hypot(uiJoyDX, uiJoyDY);
-        if (len > p.radius) {
-            uiJoyDX = (uiJoyDX / len) * p.radius;
-            uiJoyDY = (uiJoyDY / len) * p.radius;
-        }
-        setKnob(uiJoyDX, uiJoyDY, p.radius);
-        e.preventDefault();
-    }, { passive: false });
-
-    joystickArea.addEventListener('pointermove', (e) => {
-        if (!uiJoyActive) return;
-        if (uiJoyPointerId !== null && e.pointerId !== uiJoyPointerId) return;
-
-        const p = getLocal(e);
-        uiJoyDX = p.x;
-        uiJoyDY = p.y;
-
-        const len = Math.hypot(uiJoyDX, uiJoyDY);
-        if (len > p.radius) {
-            uiJoyDX = (uiJoyDX / len) * p.radius;
-            uiJoyDY = (uiJoyDY / len) * p.radius;
-        }
-        setKnob(uiJoyDX, uiJoyDY, p.radius);
-        e.preventDefault();
-    }, { passive: false });
-
-    const end = (e) => {
-        if (!uiJoyActive) return;
-        if (uiJoyPointerId !== null && e.pointerId !== uiJoyPointerId) return;
-
-        uiJoyActive = false;
-        uiJoyPointerId = null;
-        uiJoyDX = 0;
-        uiJoyDY = 0;
-        // center knob
-        setKnob(0, 0, 0);
-        e.preventDefault();
-    };
-
-    joystickArea.addEventListener('pointerup', end, { passive: false });
-    joystickArea.addEventListener('pointercancel', end, { passive: false });
-}
 
 // Prevent page scrolling while interacting with the game
 document.body.addEventListener('touchmove', (e) => {
@@ -429,7 +302,7 @@ function drawPlayer() {
         
         // Draw outline
         ctx.strokeStyle = displayColor;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.stroke();
     }
 }
@@ -441,65 +314,27 @@ function updatePlayer() {
         player.hitTimer--;
     }
 
-    // Determine intended movement:
-    // - Touch uses a virtual joystick (no teleport)
-    // - Mouse/pen keeps legacy "follow pointer" style for desktop
-    if (uiJoyActive) {
-        const rawLen = Math.hypot(uiJoyDX, uiJoyDY);
-        const len = Math.max(0, rawLen - JOYSTICK_DEADZONE);
-        if (len <= 0.0001) {
-            player.vx = 0;
-            player.vy = 0;
-        } else {
-            const nx = uiJoyDX / rawLen;
-            const ny = uiJoyDY / rawLen;
-            const radius = (joystickBaseEl ? (joystickBaseEl.clientWidth / 2 - 10) : JOYSTICK_RADIUS);
-            const clamped = Math.min(radius, len) / radius;
-            const mag = Math.pow(clamped, 1.2) * JOYSTICK_SENSITIVITY;
-            player.vx = nx * player.speed * mag;
-            player.vy = ny * player.speed * mag;
-        }
-    } else if (joystickActive) {
-        const rawLen = Math.hypot(joystickDX, joystickDY);
-        // Deadzone so tiny finger jitter doesn't move the ship
-        const len = Math.max(0, rawLen - JOYSTICK_DEADZONE);
+    // Apply collision impulse (enemy-like bounce). This decays over time.
+    player.x = (touchX - player.width / 2) + (player.bumpVX || 0);
+    player.y = (touchY - player.height / 2) + (player.bumpVY || 0);
 
-        if (len <= 0.0001) {
-            player.vx = 0;
-            player.vy = 0;
-        } else {
-            const nx = joystickDX / rawLen;
-            const ny = joystickDY / rawLen;
-
-            // Non-linear curve for smoother low-speed control
-            const clamped = Math.min(JOYSTICK_RADIUS, len) / JOYSTICK_RADIUS; // 0..1
-            const mag = Math.pow(clamped, 1.35) * JOYSTICK_SENSITIVITY;
-
-            player.vx = nx * player.speed * mag;
-            player.vy = ny * player.speed * mag;
-        }
-    } else {
-        // Desktop pointer follow (still smooth because we move toward touchX/Y)
-        const targetX = touchX - player.width / 2;
-        const targetY = touchY - player.height / 2;
-        const dx = targetX - player.x;
-        const dy = targetY - player.y;
-        player.vx = dx * 0.25;
-        player.vy = dy * 0.25;
-    }
-
-    // Apply movement + collision impulse (enemy-like bounce). Impulse decays over time.
-    player.x += (player.vx || 0) + (player.bumpVX || 0);
-    player.y += (player.vy || 0) + (player.bumpVY || 0);
-
+    // Decay the impulse so it feels floaty but settles.
     player.bumpVX = (player.bumpVX || 0) * 0.88;
     player.bumpVY = (player.bumpVY || 0) * 0.88;
 
-    // Keep player in bounds (walls do NOT cause damage)
+    // Keep player in bounds
     if (player.x < 0) player.x = 0;
     if (player.x + player.width > CANVAS_WIDTH) player.x = CANVAS_WIDTH - player.width;
     if (player.y < 0) player.y = 0;
     if (player.y + player.height > CANVAS_HEIGHT) player.y = CANVAS_HEIGHT - player.height;
+
+    // Bounce the impulse off walls (no damage from walls)
+    if (player.x <= 0 || player.x + player.width >= CANVAS_WIDTH) {
+        player.bumpVX = -(player.bumpVX || 0) * 0.7;
+    }
+    if (player.y <= 0 || player.y + player.height >= CANVAS_HEIGHT) {
+        player.bumpVY = -(player.bumpVY || 0) * 0.7;
+    }
 }
 
 // Shoot bullet (stackable shot level)
@@ -706,7 +541,7 @@ function drawEnemies() {
             
             // Draw outline
             ctx.strokeStyle = '#000';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 2;
             ctx.strokeRect(enemy.x, enemy.y, enemy.width, enemy.height);
         }
 
@@ -1179,7 +1014,7 @@ function drawEnemyBullets() {
 
             // Subtle outline so it stays visible on bright backgrounds
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.stroke();
@@ -1559,7 +1394,7 @@ function drawBoss() {
         ctx.fillStyle = '#990099';
         ctx.fillRect(b.x, b.y, b.width, b.height);
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.strokeRect(b.x, b.y, b.width, b.height);
 
         // Health bar above boss
@@ -1676,7 +1511,7 @@ function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius, fillStyle, stro
     ctx.fill();
     if (strokeStyle) {
         ctx.strokeStyle = strokeStyle;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.stroke();
     }
 }  
@@ -1753,23 +1588,6 @@ function gameLoop() {
     
     if (!game.paused && game.lives > 0) {
         updatePlayer();
-
-    // track joystick knob when idle (shows direction you're moving)
-    if (!uiJoyActive && joystickBaseEl && joystickKnobEl) {
-        const radius = Math.max(20, joystickBaseEl.clientWidth / 2 - 10);
-        const vx = (player.vx || 0);
-        const vy = (player.vy || 0);
-        const sp = Math.min(1, Math.hypot(vx, vy) / (player.speed || 1));
-        const dx = (vx / (player.speed || 1)) * radius * 0.55;
-        const dy = (vy / (player.speed || 1)) * radius * 0.55;
-        // ease toward target so it looks smooth
-        const curX = uiJoyDX || 0;
-        const curY = uiJoyDY || 0;
-        uiJoyDX = curX + (dx - curX) * 0.18;
-        uiJoyDY = curY + (dy - curY) * 0.18;
-        setKnob(uiJoyDX, uiJoyDY, radius);
-    }
-
         updateBullets();
         updateEnemies();
         updateEnemyBullets();
