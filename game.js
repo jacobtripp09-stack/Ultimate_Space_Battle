@@ -64,7 +64,10 @@ const player = {
     image: null,
     color: '#00ff41',
     hitTimer: 0,
-    maxHitTime: 30
+    maxHitTime: 30,
+    // Collision impulse (enemy-like bounce). Added on top of pointer movement.
+    bumpVX: 0,
+    bumpVY: 0
 };
 
 // Arrays for game objects
@@ -311,15 +314,27 @@ function updatePlayer() {
         player.hitTimer--;
     }
 
-    // Snap player to pointer position exactly
-    player.x = touchX - player.width / 2;
-    player.y = touchY - player.height / 2;
+    // Apply collision impulse (enemy-like bounce). This decays over time.
+    player.x = (touchX - player.width / 2) + (player.bumpVX || 0);
+    player.y = (touchY - player.height / 2) + (player.bumpVY || 0);
+
+    // Decay the impulse so it feels floaty but settles.
+    player.bumpVX = (player.bumpVX || 0) * 0.88;
+    player.bumpVY = (player.bumpVY || 0) * 0.88;
 
     // Keep player in bounds
     if (player.x < 0) player.x = 0;
     if (player.x + player.width > CANVAS_WIDTH) player.x = CANVAS_WIDTH - player.width;
     if (player.y < 0) player.y = 0;
     if (player.y + player.height > CANVAS_HEIGHT) player.y = CANVAS_HEIGHT - player.height;
+
+    // Bounce the impulse off walls (no damage from walls)
+    if (player.x <= 0 || player.x + player.width >= CANVAS_WIDTH) {
+        player.bumpVX = -(player.bumpVX || 0) * 0.7;
+    }
+    if (player.y <= 0 || player.y + player.height >= CANVAS_HEIGHT) {
+        player.bumpVY = -(player.bumpVY || 0) * 0.7;
+    }
 }
 
 // Shoot bullet (stackable shot level)
@@ -454,7 +469,14 @@ function createEnemy(type = 'blue') {
         waveTime: Math.random() * 100,
         formationX: 0,
         formationY: 0,
-        inFormation: false
+        inFormation: false,
+        // Small collision impulse so enemies bounce off each other without changing core movement
+        bumpVX: 0,
+        bumpVY: 0,
+        // Zero-gravity drift physics (activates after reaching formation target)
+        vx: 0,
+        vy: 0,
+        formationComplete: false
     };
 }
 
@@ -486,7 +508,7 @@ function createBoss() {
         chargeTimer: 0,
         // Reduced charge durations (shorter telegraph)
         chargeDuration: chargeBase + Math.floor(Math.random() * chargeRandMax),
-        nextAttackType: (() => { const r = Math.random(); return (r < 0.25 ? 'massive' : (r < 0.50 ? 'burst' : (r < 0.75 ? 'bounce' : 'seeker'))); })(),
+        nextAttackType: (Math.random() < 0.34 ? 'massive' : (Math.random() < 0.67 ? 'burst' : 'bounce')),
         // Movement targets and behavior for freer roaming
         targetX: CANVAS_WIDTH / 2,
         targetY: 80,
@@ -682,16 +704,15 @@ if (!game.overrideWave && game.waveSpawning && game.waveSpawnedCount < game.wave
 
     // Move enemies
     enemies.forEach((enemy, index) => {
-        enemy.waveTime++;
-        
-        if (!enemy.inFormation) {
+        enemy.waveTime++;        if (!enemy.inFormation) {
             // Pattern movement - sine wave
             enemy.y += enemy.speed;
             enemy.x = enemy.x + Math.sin(enemy.waveTime * 0.05) * 1.5;
-            
+
             // Check if enemy should enter formation (reached middle of screen)
             if (enemy.y > CANVAS_HEIGHT / 3) {
                 enemy.inFormation = true;
+                enemy.formationComplete = false;
                 // Calculate position in formation (3x3 grid centered)
                 const formationIndex = enemies.indexOf(enemy) % 9;
                 const row = Math.floor(formationIndex / 3);
@@ -699,19 +720,49 @@ if (!game.overrideWave && game.waveSpawning && game.waveSpawnedCount < game.wave
                 enemy.formationX = CANVAS_WIDTH / 2 - 60 + col * 60;
                 enemy.formationY = CANVAS_HEIGHT / 2 - 60 + row * 60;
             }
-        } else {
-            // Move smoothly to formation position
+        } else if (!enemy.formationComplete) {
+            // Move smoothly to formation position (pathfinding/settle)
             const dx = enemy.formationX - enemy.x;
             const dy = enemy.formationY - enemy.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (distance > 3) {
                 const speed = 1;
                 enemy.x += (dx / distance) * speed;
                 enemy.y += (dy / distance) * speed;
+            } else {
+                // Formation reached: switch to zero-gravity drift mode
+                enemy.formationComplete = true;
+                enemy.vx = 0;
+                enemy.vy = 0;
             }
+        } else {
+            // Zero gravity: drift & bounce when bumped by other enemies/objects
+            enemy.x += enemy.vx;
+            enemy.y += enemy.vy;
+
+            // Very light damping so it doesn't drift forever at high speed
+            enemy.vx *= 0.995;
+            enemy.vy *= 0.995;
+
+            // Bounce off walls
+            const restitution = 0.90;
+            if (enemy.x < 0) { enemy.x = 0; enemy.vx = Math.abs(enemy.vx) * restitution; }
+            if (enemy.x + enemy.width > CANVAS_WIDTH) { enemy.x = CANVAS_WIDTH - enemy.width; enemy.vx = -Math.abs(enemy.vx) * restitution; }
+            if (enemy.y < 0) { enemy.y = 0; enemy.vy = Math.abs(enemy.vy) * restitution; }
+            if (enemy.y + enemy.height > CANVAS_HEIGHT) { enemy.y = CANVAS_HEIGHT - enemy.height; enemy.vy = -Math.abs(enemy.vy) * restitution; }
         }
-        
+
+        // Apply small collision impulses (from enemy-enemy bumps)
+        if (enemy.bumpVX || enemy.bumpVY) {
+            enemy.x += enemy.bumpVX;
+            enemy.y += enemy.bumpVY;
+            enemy.bumpVX *= 0.82;
+            enemy.bumpVY *= 0.82;
+            if (Math.abs(enemy.bumpVX) < 0.02) enemy.bumpVX = 0;
+            if (Math.abs(enemy.bumpVY) < 0.02) enemy.bumpVY = 0;
+        }
+
         // Enemy attack telegraph: glow for a moment before shooting
 if (enemy.shootCharge && enemy.shootCharge > 0) {
     enemy.shootCharge--;
@@ -732,7 +783,147 @@ if (enemy.shootCharge && enemy.shootCharge > 0) {
         if (enemy.x < 0) enemy.x = 0;
         if (enemy.x + enemy.width > CANVAS_WIDTH) enemy.x = CANVAS_WIDTH - enemy.width;
     });
-} 
+    // Soft repulsion prevents stacking even before overlaps happen
+    applyEnemyRepulsion();
+
+    // Resolve overlaps and add collision impulse
+    resolveEnemyCollisions();
+}
+
+// Soft repulsion so enemies don't stack (acts like a gentle outward gravity).
+function applyEnemyRepulsion() {
+    const n = enemies.length;
+    if (n < 2) return;
+
+    // Tunables
+    const radius = 70;          // how far the repulsion reaches
+    const strength = 0.018;     // acceleration per frame at close range
+    const maxAccel = 0.12;      // cap so it stays subtle
+
+    for (let i = 0; i < n; i++) {
+        const a = enemies[i];
+        const acx = a.x + a.width / 2;
+        const acy = a.y + a.height / 2;
+        for (let j = i + 1; j < n; j++) {
+            const b = enemies[j];
+            const bcx = b.x + b.width / 2;
+            const bcy = b.y + b.height / 2;
+
+            let dx = bcx - acx;
+            let dy = bcy - acy;
+            let dist = Math.hypot(dx, dy);
+
+            if (dist === 0) {
+                dx = (Math.random() - 0.5) || 0.01;
+                dy = (Math.random() - 0.5) || 0.01;
+                dist = Math.hypot(dx, dy);
+            }
+
+            if (dist < radius) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                // 1 at dist=0, 0 at dist=radius
+                const t = (radius - dist) / radius;
+                const accel = Math.min(maxAccel, strength * t);
+
+                // Push away from each other.
+                if (a.formationComplete) {
+                    a.vx -= nx * accel;
+                    a.vy -= ny * accel;
+                } else {
+                    a.bumpVX = (a.bumpVX || 0) - nx * accel;
+                    a.bumpVY = (a.bumpVY || 0) - ny * accel;
+                }
+
+                if (b.formationComplete) {
+                    b.vx += nx * accel;
+                    b.vy += ny * accel;
+                } else {
+                    b.bumpVX = (b.bumpVX || 0) + nx * accel;
+                    b.bumpVY = (b.bumpVY || 0) + ny * accel;
+                }
+            }
+        }
+    }
+}
+
+// Separation + bounce impulse so enemies don't overlap and will shove each other around.
+function resolveEnemyCollisions() {
+    const n = enemies.length;
+    if (n < 2) return;
+
+    // Tunables
+    const impulseStrength = 0.22;
+    const maxImpulse = 3.0;
+
+    for (let i = 0; i < n; i++) {
+        const a = enemies[i];
+        const ar = Math.min(a.width, a.height) / 2;
+        const acx = a.x + a.width / 2;
+        const acy = a.y + a.height / 2;
+
+        for (let j = i + 1; j < n; j++) {
+            const b = enemies[j];
+            const br = Math.min(b.width, b.height) / 2;
+            const bcx = b.x + b.width / 2;
+            const bcy = b.y + b.height / 2;
+
+            let dx = bcx - acx;
+            let dy = bcy - acy;
+            let dist = Math.hypot(dx, dy);
+            const minDist = ar + br;
+
+            if (dist === 0) {
+                dx = (Math.random() - 0.5) || 0.01;
+                dy = (Math.random() - 0.5) || 0.01;
+                dist = Math.hypot(dx, dy);
+            }
+
+            if (dist < minDist) {
+                const nx = dx / dist;
+                const ny = dy / dist;
+                const overlap = (minDist - dist);
+
+                // Hard separation: move each enemy by half the overlap
+                const push = overlap / 2;
+                a.x -= nx * push;
+                a.y -= ny * push;
+                b.x += nx * push;
+                b.y += ny * push;
+
+                // Bounce impulse: adds shove so it feels like collision
+                const imp = Math.min(maxImpulse, overlap * impulseStrength);
+
+                // If they finished formation, they drift (vx/vy). Otherwise keep it as a small bump.
+                if (a.formationComplete) {
+                    a.vx -= nx * imp;
+                    a.vy -= ny * imp;
+                } else {
+                    a.bumpVX = (a.bumpVX || 0) - nx * imp;
+                    a.bumpVY = (a.bumpVY || 0) - ny * imp;
+                }
+
+                if (b.formationComplete) {
+                    b.vx += nx * imp;
+                    b.vy += ny * imp;
+                } else {
+                    b.bumpVX = (b.bumpVX || 0) + nx * imp;
+                    b.bumpVY = (b.bumpVY || 0) + ny * imp;
+                }
+            }
+        }
+    }
+
+    // Keep everyone in bounds after separation/impulses
+    for (let i = 0; i < n; i++) {
+        const e = enemies[i];
+        if (e.x < 0) { e.x = 0; if (e.formationComplete) e.vx = Math.abs(e.vx || 0); else e.bumpVX = Math.abs(e.bumpVX || 0); }
+        if (e.x + e.width > CANVAS_WIDTH) { e.x = CANVAS_WIDTH - e.width; if (e.formationComplete) e.vx = -Math.abs(e.vx || 0); else e.bumpVX = -Math.abs(e.bumpVX || 0); }
+        if (e.y < 0) { e.y = 0; if (e.formationComplete) e.vy = Math.abs(e.vy || 0); else e.bumpVY = Math.abs(e.bumpVY || 0); }
+        if (e.y + e.height > CANVAS_HEIGHT) { e.y = CANVAS_HEIGHT - e.height; if (e.formationComplete) e.vy = -Math.abs(e.vy || 0); else e.bumpVY = -Math.abs(e.bumpVY || 0); }
+    }
+}
+
 
 // Enemy shoot (supports vx/vy bullets)
 function shootEnemyBullet(enemy, vx = 0, vy = 4, width = 4, height = 10, color = '#ff6666') {
@@ -745,7 +936,8 @@ function shootEnemyBullet(enemy, vx = 0, vy = 4, width = 4, height = 10, color =
         height: height,
         color: color
     });
-} 
+}
+
 
 
 // Boss special: bouncing star projectile
@@ -764,7 +956,7 @@ function shootEnemyBouncyStar(enemy, vx, vy) {
     });
 }
 
-// Boss special: slow homing tracker that tracks the player, despawns after 10-15 seconds
+// Boss special: slow homing triangle that tracks the player, despawns after 10-15 seconds
 function shootEnemySeekerTriangle(enemy) {
     const size = 16; // smallish
     const ttl = 600 + Math.floor(Math.random() * 301); // 10-15 seconds @ ~60fps
@@ -810,16 +1002,17 @@ function drawEnemyBullets() {
         drawStar(ctx, cx, cy, 5, bullet.width / 2, bullet.width / 4, bullet.color || '#66ccff', '#ffffff');
     }
 } else if (bullet.kind === 'seekerTriangle') {
-            // Tracker projectile (was a triangle) — draw as a circle for clearer readability
+            // Tracker projectile — draw as a circle for clearer readability
             const cx = bullet.x + bullet.width / 2;
             const cy = bullet.y + bullet.height / 2;
             const r = Math.min(bullet.width, bullet.height) / 2;
+
             ctx.fillStyle = bullet.color || '#ff3333';
             ctx.beginPath();
             ctx.arc(cx, cy, r, 0, Math.PI * 2);
             ctx.fill();
 
-            // Optional subtle outline
+            // Subtle outline so it stays visible on bright backgrounds
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.beginPath();
@@ -935,6 +1128,36 @@ function checkCollisions() {
 
                 // Each hit drops one tier: white -> ... -> red -> dead
                 const currentIndex = ENEMY_TIERS.findIndex(t => t.type === enemies[j].type);
+
+                // Knockback: only higher-tier enemies (more layers) get pushed by player shots.
+                // Not applied to bosses (boss has its own collision branch).
+                if (currentIndex >= 1) {
+                    const ex = enemies[j].x + enemies[j].width / 2;
+                    const ey = enemies[j].y + enemies[j].height / 2;
+                    const px = player.x + player.width / 2;
+                    const py = player.y + player.height / 2;
+                    let dx = ex - px;
+                    let dy = ey - py;
+                    const dist = Math.max(1, Math.hypot(dx, dy));
+                    dx /= dist;
+                    dy /= dist;
+
+                    // Slightly stronger knock for higher tiers, but keep it subtle.
+                    const base = 0.9;
+                    const perTier = 0.22;
+                    const knock = Math.min(2.2, base + perTier * currentIndex);
+
+                    if (enemies[j].formationComplete) {
+                        // In zero-gravity drift mode, apply to vx/vy so it keeps drifting.
+                        enemies[j].vx = (enemies[j].vx || 0) + dx * knock;
+                        enemies[j].vy = (enemies[j].vy || 0) + dy * knock;
+                    } else {
+                        // While pathing/settling, apply as a short impulse (bump) so it doesn't break formation logic.
+                        enemies[j].bumpVX = (enemies[j].bumpVX || 0) + dx * knock;
+                        enemies[j].bumpVY = (enemies[j].bumpVY || 0) + dy * knock;
+                    }
+                }
+
                 if (currentIndex <= 0) {
                     // Red (or unknown) -> destroyed
                     game.score += 100 * (enemies[j].maxHealth || 1);
@@ -990,12 +1213,69 @@ function checkCollisions() {
         }
     }
 
+    // Player takes damage when colliding with any enemy type (walls do not hurt)
+    for (let j = 0; j < enemies.length; j++) {
+        const e = enemies[j];
+        if (checkCollision(player, e)) {
+            // Damage gate so you don't lose all lives instantly while overlapping
+            if (player.hitTimer <= 0) {
+                game.lives--;
+                player.hitTimer = player.maxHitTime;
+                createExplosion(player.x + player.width / 2, player.y + player.height / 2);
+            }
+
+            // Enemy-style bounce impulse for both player and enemy
+            const px = player.x + player.width / 2;
+            const py = player.y + player.height / 2;
+            const ex = e.x + e.width / 2;
+            const ey = e.y + e.height / 2;
+            let dx = ex - px;
+            let dy = ey - py;
+            const dist = Math.max(1, Math.hypot(dx, dy));
+            dx /= dist;
+            dy /= dist;
+
+            const shove = 2.3;
+            // Nudge enemy out of the player so they don't stay stacked on top of each other
+            e.x += dx * 1.5;
+            e.y += dy * 1.5;
+            player.bumpVX = (player.bumpVX || 0) - dx * shove;
+            player.bumpVY = (player.bumpVY || 0) - dy * shove;
+
+            if (e.formationComplete) {
+                e.vx = (e.vx || 0) + dx * shove;
+                e.vy = (e.vy || 0) + dy * shove;
+            } else {
+                e.bumpVX = (e.bumpVX || 0) + dx * shove;
+                e.bumpVY = (e.bumpVY || 0) + dy * shove;
+            }
+        }
+    }
+
     // Player ramming damage vs boss (separate from bullet loop)
     if (game.boss && game.boss.invulnerable <= 0 && game.boss.hitCooldown <= 0 && checkCollision(player, game.boss)) {
+        // Collision hurts the player too (walls don't hurt)
+        if (player.hitTimer <= 0) {
+            game.lives--;
+            createExplosion(player.x + player.width / 2, player.y + player.height / 2);
+        }
         game.boss.health--;
         game.boss.hitCooldown = 30;
         createExplosion(game.boss.x + game.boss.width / 2, game.boss.y + game.boss.height / 2);
         player.hitTimer = player.maxHitTime;
+
+        // Bounce the player away a bit (enemy-style impulse)
+        const px = player.x + player.width / 2;
+        const py = player.y + player.height / 2;
+        const bx = game.boss.x + game.boss.width / 2;
+        const by = game.boss.y + game.boss.height / 2;
+        let dx = bx - px;
+        let dy = by - py;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        dx /= dist;
+        dy /= dist;
+        player.bumpVX = (player.bumpVX || 0) - dx * 3.0;
+        player.bumpVY = (player.bumpVY || 0) - dy * 3.0;
 
         if (game.boss.health <= 0) {
             createExplosion(game.boss.x + game.boss.width / 2, game.boss.y + game.boss.height / 2);
