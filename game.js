@@ -19,6 +19,11 @@ const ENEMY_POST_SHOT_COOLDOWN_MAX = 120;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Joystick UI (below the canvas)
+const joystickArea = document.getElementById('joystickArea');
+const joystickBaseEl = document.getElementById('joystickBase');
+const joystickKnobEl = document.getElementById('joystickKnob');
+
 // UI elements
 const scoreElement = document.getElementById('score');
 const livesElement = document.getElementById('lives');
@@ -90,6 +95,7 @@ let touchX = CANVAS_WIDTH / 2;
 let touchY = CANVAS_HEIGHT - 70;
 
 // Virtual joystick (touch) control
+// Canvas-based joystick is kept for fallback; primary control is the UI joystick below the game.
 let joystickActive = false;
 let joystickStartX = 0;
 let joystickStartY = 0;
@@ -98,7 +104,23 @@ let joystickDY = 0;
 let joystickTouchId = null;
 const JOYSTICK_RADIUS = 55; // pixels in game coords (bigger = less twitchy)
 const JOYSTICK_DEADZONE = 12; // pixels (ignore tiny movements)
-const JOYSTICK_SENSITIVITY = 0.65; // 0..1 (lower = slower)
+const JOYSTICK_SENSITIVITY = 0.55; // 0..1 (lower = slower)
+
+// UI joystick (DOM) state
+let uiJoyActive = false;
+let uiJoyStartX = 0;
+let uiJoyStartY = 0;
+let uiJoyDX = 0;
+let uiJoyDY = 0;
+let uiJoyPointerId = null;
+
+function setKnob(dx, dy, radiusPx) {
+    if (!joystickKnobEl) return;
+    const cx = 0.5 * joystickBaseEl.clientWidth;
+    const cy = 0.5 * joystickBaseEl.clientHeight;
+    joystickKnobEl.style.left = (cx + dx) + 'px';
+    joystickKnobEl.style.top  = (cy + dy) + 'px';
+}
 
 let lastShootTime = 0;
 const SHOOT_INTERVAL = 400; // 0.4 seconds in milliseconds
@@ -243,6 +265,72 @@ canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
 }, { passive: false });
 
+
+// --- UI Joystick controls (below canvas) ---
+if (joystickArea && joystickBaseEl) {
+    const getLocal = (e) => {
+        const r = joystickBaseEl.getBoundingClientRect();
+        const x = e.clientX - (r.left + r.width / 2);
+        const y = e.clientY - (r.top + r.height / 2);
+        return { x, y, radius: Math.max(20, r.width / 2 - 10) };
+    };
+
+    joystickArea.addEventListener('pointerdown', (e) => {
+        // Only use joystick for touch/pointer; do not teleport the ship
+        uiJoyActive = true;
+        uiJoyPointerId = e.pointerId;
+        joystickArea.setPointerCapture?.(e.pointerId);
+
+        const p = getLocal(e);
+        uiJoyStartX = 0;
+        uiJoyStartY = 0;
+        uiJoyDX = p.x;
+        uiJoyDY = p.y;
+
+        // clamp and show knob
+        const len = Math.hypot(uiJoyDX, uiJoyDY);
+        if (len > p.radius) {
+            uiJoyDX = (uiJoyDX / len) * p.radius;
+            uiJoyDY = (uiJoyDY / len) * p.radius;
+        }
+        setKnob(uiJoyDX, uiJoyDY, p.radius);
+        e.preventDefault();
+    }, { passive: false });
+
+    joystickArea.addEventListener('pointermove', (e) => {
+        if (!uiJoyActive) return;
+        if (uiJoyPointerId !== null && e.pointerId !== uiJoyPointerId) return;
+
+        const p = getLocal(e);
+        uiJoyDX = p.x;
+        uiJoyDY = p.y;
+
+        const len = Math.hypot(uiJoyDX, uiJoyDY);
+        if (len > p.radius) {
+            uiJoyDX = (uiJoyDX / len) * p.radius;
+            uiJoyDY = (uiJoyDY / len) * p.radius;
+        }
+        setKnob(uiJoyDX, uiJoyDY, p.radius);
+        e.preventDefault();
+    }, { passive: false });
+
+    const end = (e) => {
+        if (!uiJoyActive) return;
+        if (uiJoyPointerId !== null && e.pointerId !== uiJoyPointerId) return;
+
+        uiJoyActive = false;
+        uiJoyPointerId = null;
+        uiJoyDX = 0;
+        uiJoyDY = 0;
+        // center knob
+        setKnob(0, 0, 0);
+        e.preventDefault();
+    };
+
+    joystickArea.addEventListener('pointerup', end, { passive: false });
+    joystickArea.addEventListener('pointercancel', end, { passive: false });
+}
+
 // Prevent page scrolling while interacting with the game
 document.body.addEventListener('touchmove', (e) => {
     if (pointerDown) e.preventDefault();
@@ -356,7 +444,22 @@ function updatePlayer() {
     // Determine intended movement:
     // - Touch uses a virtual joystick (no teleport)
     // - Mouse/pen keeps legacy "follow pointer" style for desktop
-    if (joystickActive) {
+    if (uiJoyActive) {
+        const rawLen = Math.hypot(uiJoyDX, uiJoyDY);
+        const len = Math.max(0, rawLen - JOYSTICK_DEADZONE);
+        if (len <= 0.0001) {
+            player.vx = 0;
+            player.vy = 0;
+        } else {
+            const nx = uiJoyDX / rawLen;
+            const ny = uiJoyDY / rawLen;
+            const radius = (joystickBaseEl ? (joystickBaseEl.clientWidth / 2 - 10) : JOYSTICK_RADIUS);
+            const clamped = Math.min(radius, len) / radius;
+            const mag = Math.pow(clamped, 1.45) * JOYSTICK_SENSITIVITY;
+            player.vx = nx * player.speed * mag;
+            player.vy = ny * player.speed * mag;
+        }
+    } else if (joystickActive) {
         const rawLen = Math.hypot(joystickDX, joystickDY);
         // Deadzone so tiny finger jitter doesn't move the ship
         const len = Math.max(0, rawLen - JOYSTICK_DEADZONE);
@@ -1650,6 +1753,23 @@ function gameLoop() {
     
     if (!game.paused && game.lives > 0) {
         updatePlayer();
+
+    // track joystick knob when idle (shows direction you're moving)
+    if (!uiJoyActive && joystickBaseEl && joystickKnobEl) {
+        const radius = Math.max(20, joystickBaseEl.clientWidth / 2 - 10);
+        const vx = (player.vx || 0);
+        const vy = (player.vy || 0);
+        const sp = Math.min(1, Math.hypot(vx, vy) / (player.speed || 1));
+        const dx = (vx / (player.speed || 1)) * radius * 0.55;
+        const dy = (vy / (player.speed || 1)) * radius * 0.55;
+        // ease toward target so it looks smooth
+        const curX = uiJoyDX || 0;
+        const curY = uiJoyDY || 0;
+        uiJoyDX = curX + (dx - curX) * 0.18;
+        uiJoyDY = curY + (dy - curY) * 0.18;
+        setKnob(uiJoyDX, uiJoyDY, radius);
+    }
+
         updateBullets();
         updateEnemies();
         updateEnemyBullets();
